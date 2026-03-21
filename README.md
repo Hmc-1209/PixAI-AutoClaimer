@@ -14,7 +14,40 @@ Automatically claims the free 10,000 daily points on [PixAI.art](https://pixai.a
 
 - Windows 10/11
 - Python 3.10+
-- Google Chrome installed at the default path (`C:\Program Files\Google\Chrome\Application\chrome.exe`)
+- Google Chrome installed
+
+## Hardcoded paths — change these before use
+
+There are two files with paths you may need to adjust depending on your environment:
+
+### 1. `claimer.py` — Chrome executable path
+
+```python
+# Line 15
+CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+```
+
+Change this if Chrome is installed at a different location. To find your actual path, run in cmd:
+```
+where chrome
+```
+
+### 2. `setup_autostart.bat` — Python and project paths
+
+```bat
+set PYTHONW=C:\Users\danny\AppData\Local\Programs\Python\Python310\pythonw.exe
+set MONITOR=D:\PixAI-AutoClaimer\monitor.py
+```
+
+- **`PYTHONW`** — path to `pythonw.exe` (Python without console window). To find yours:
+  ```
+  where python
+  ```
+  Then replace `python.exe` with `pythonw.exe` in the same folder.
+
+- **`MONITOR`** — full path to `monitor.py`. This must match wherever you cloned/placed this repo on your machine.
+
+> The project can be placed anywhere on any drive. Just make sure `MONITOR` in `setup_autostart.bat` reflects the actual location.
 
 ## Setup
 
@@ -33,7 +66,9 @@ Copy `accounts.example.json` to `accounts.json` and fill in your PixAI credentia
 ]
 ```
 
-**3. Set up autostart (run as Administrator)**
+**3. Update paths in `setup_autostart.bat` and `claimer.py`** (see above)
+
+**4. Set up autostart (run as Administrator)**
 ```
 setup_autostart.bat
 ```
