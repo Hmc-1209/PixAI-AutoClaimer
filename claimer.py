@@ -103,11 +103,6 @@ async def _login(tab, email: str, password: str, logger) -> bool:
         await asyncio.sleep(1)
     await asyncio.sleep(2)
 
-    btn_texts = await _js(tab, """
-        return Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim().substring(0, 30)).join(' | ')
-    """)
-    logger.info(f"[{safe}] Login page buttons: {btn_texts}")
-
     # Click email login button
     try:
         btn = await tab.find(tag_name="button", text="電子郵件", timeout=10)
