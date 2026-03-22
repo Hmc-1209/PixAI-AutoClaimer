@@ -6,3 +6,5 @@ echo  PixAI Auto Claim - Manual Run
 echo ========================================
 echo.
 python monitor.py
+echo.
+pause
