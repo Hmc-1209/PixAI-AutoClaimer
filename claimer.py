@@ -66,19 +66,11 @@ async def _get_url(tab) -> str:
 
 
 async def _get_balance(tab) -> Optional[int]:
-    result = await _js(tab, """
+    # The modal header shows "可用點數 🟡 X,XXX" — read it while modal is still open
+    result = await _js(tab, r"""
         const text = document.body.innerText;
-        const patterns = [
-            /Available Points[^\\d]*([\\d,]+)/i,
-            /可用點數[^\\d]*([\\d,]+)/,
-            /([\\d,]+)\\s*pts?/i,
-            /([\\d,]+)\\s*點/,
-        ];
-        for (const p of patterns) {
-            const m = text.match(p);
-            if (m) return m[1].replace(/,/g, '');
-        }
-        return null;
+        const m = text.match(/可用點數[\s\S]{0,10}?([\d,]+)/);
+        return m ? m[1].replace(/,/g, '') : null;
     """)
     if result:
         try:
@@ -275,6 +267,10 @@ async def _claim_daily(tab, username: str, logger) -> tuple[bool, bool, Optional
     await asyncio.sleep(5)
     await _screenshot(tab, f"{safe}_9_after_claim")
 
+    # Read balance now while modal is still showing the success state
+    # ("可用點數 🟡 X,XXX" is visible in the modal header)
+    balance = await _get_balance(tab)
+
     modal_closed = await _js(tab, """
         const b = Array.from(document.querySelectorAll('button'))
             .find(b => b.textContent.includes('領取每日'));
@@ -286,7 +282,6 @@ async def _claim_daily(tab, username: str, logger) -> tuple[bool, bool, Optional
         logger.warning(f"[{safe}] Modal not closed, claim may have failed")
         return False, False, None, None
 
-    balance = await _get_balance(tab)
     return True, False, 10000, balance
 
 
