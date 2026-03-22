@@ -66,11 +66,15 @@ async def _get_url(tab) -> str:
 
 
 async def _get_balance(tab) -> Optional[int]:
-    # The modal header shows "可用點數 🟡 X,XXX" — read it while modal is still open
     result = await _js(tab, r"""
         const text = document.body.innerText;
-        const m = text.match(/可用點數[\s\S]{0,10}?([\d,]+)/);
-        return m ? m[1].replace(/,/g, '') : null;
+        // Modal header: "可用點數 🟡 X,XXX"
+        const modalMatch = text.match(/可用點數[\s\S]{0,10}?([\d,]+)/);
+        if (modalMatch) return modalMatch[1].replace(/,/g, '');
+        // Profile page: "X,XXX +" (balance with + indicator next to coin icon)
+        const profileMatch = text.match(/([\d,]+)\s*\+/);
+        if (profileMatch) return profileMatch[1].replace(/,/g, '');
+        return null;
     """)
     if result:
         try:
