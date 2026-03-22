@@ -67,14 +67,18 @@ async def _get_url(tab) -> str:
 
 async def _get_balance(tab) -> Optional[int]:
     result = await _js(tab, r"""
-        const text = document.body.innerText;
-        // Modal header: "可用點數 🟡 X,XXX"
-        const modalMatch = text.match(/可用點數[\s\S]{0,10}?([\d,]+)/);
-        if (modalMatch) return modalMatch[1].replace(/,/g, '');
-        // Profile page: "X,XXX +" (balance with + indicator next to coin icon)
-        const profileMatch = text.match(/([\d,]+)\s*\+/);
-        if (profileMatch) return profileMatch[1].replace(/,/g, '');
-        return null;
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "https://api.pixai.art/graphql", false);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.withCredentials = true;
+        xhr.send(JSON.stringify({query: "{ me { quotaAmount } }"}));
+        try {
+            const data = JSON.parse(xhr.responseText);
+            const amount = data && data.data && data.data.me && data.data.me.quotaAmount;
+            return amount !== undefined ? String(amount) : null;
+        } catch(e) {
+            return null;
+        }
     """)
     if result:
         try:

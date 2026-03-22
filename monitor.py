@@ -88,11 +88,12 @@ async def run():
             }
         elif result.already_claimed:
             skip_count += 1
-            # Update balance even though already claimed
+            prev = state.get(username, {})
             state[username] = {
                 "note": note or username,
-                "last_claimed": state.get(username, {}).get("last_claimed"),
-                "balance": result.balance,
+                "last_claimed": prev.get("last_claimed"),
+                # Keep existing balance if the new read came back empty
+                "balance": result.balance if result.balance is not None else prev.get("balance"),
             }
         else:
             fail_count += 1
