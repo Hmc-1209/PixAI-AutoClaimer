@@ -2,6 +2,7 @@
 PixAI Auto Claim Monitor
 Runs once on startup. Claims for any account that hasn't been claimed
 since today's daily reset (08:00 Taiwan time = 00:00 UTC).
+Always updates the balance for every account regardless of claim status.
 """
 import asyncio
 import json
@@ -59,18 +60,17 @@ async def run():
 
     logger.info(f"PixAI monitor started — {len(accounts)} accounts total, {len(to_claim)} need claiming")
 
-    if not to_claim:
-        logger.info("All accounts already claimed since today's reset (00:00 UTC). Nothing to do.")
-        return
-
-    labels = [a.get("note") or a["username"] for a in to_claim]
-    logger.info(f"Accounts to claim: {labels}")
+    if to_claim:
+        labels = [a.get("note") or a["username"] for a in to_claim]
+        logger.info(f"Accounts to claim: {labels}")
+    else:
+        logger.info("All accounts already claimed since today's reset — updating balances")
 
     success_count = 0
     skip_count = 0
     fail_count = 0
 
-    for i, account in enumerate(to_claim):
+    for i, account in enumerate(accounts):
         email    = account["email"].strip()
         password = account["password"].strip()
         username = account["username"].strip()
@@ -81,20 +81,25 @@ async def run():
 
         if result.success:
             success_count += 1
-        elif result.already_claimed:
-            skip_count += 1
-        else:
-            fail_count += 1
-
-        if result.success or result.already_claimed:
             state[username] = {
                 "note": note or username,
                 "last_claimed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
                 "balance": result.balance,
             }
-            save_state(state)
+        elif result.already_claimed:
+            skip_count += 1
+            # Update balance even though already claimed
+            state[username] = {
+                "note": note or username,
+                "last_claimed": state.get(username, {}).get("last_claimed"),
+                "balance": result.balance,
+            }
+        else:
+            fail_count += 1
 
-        if i < len(to_claim) - 1:
+        save_state(state)
+
+        if i < len(accounts) - 1:
             await asyncio.sleep(DELAY_BETWEEN_ACCOUNTS)
 
     logger.info(f"Done — claimed: {success_count} | already done: {skip_count} | failed: {fail_count}")
