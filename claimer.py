@@ -177,65 +177,89 @@ async def _is_logged_in(tab) -> bool:
     return bool(result)
 
 
+def _daily_card_btn_js(action: str) -> str:
+    """
+    JS snippet to find the '領取' button inside the '每日任務' card
+    (not the tab label).  action='check' returns 'ready'/'disabled'/'no_button';
+    action='click' clicks the button and returns true/false.
+
+    Stops traversing upward once we reach a container that also holds other
+    task cards (e.g. '釋出作品'), so we never accidentally find a button
+    that belongs to a sibling card.
+    """
+    check_or_click = (
+        "btn.click(); return true;"
+        if action == "click"
+        else "return btn.disabled || btn.getAttribute('disabled') !== null ? 'disabled' : 'ready';"
+    )
+    no_result = "false" if action == "click" else "'no_button'"
+    return f"""
+        const isTab = el => {{
+            const p = el.parentElement;
+            return p && Array.from(p.children).some(
+                s => s !== el && (s.textContent.trim() === '精選活動' || s.textContent.trim() === '社群任務')
+            );
+        }};
+        const crossesCardBoundary = el => {{
+            // True when this container also contains sibling card titles
+            const inner = Array.from(el.querySelectorAll('*'));
+            return inner.some(n => n.textContent.trim() === '釋出作品' || n.textContent.trim() === '收到按讚');
+        }};
+        const allEls = Array.from(document.querySelectorAll('*'));
+        const cardTitles = allEls.filter(el => el.textContent.trim() === '每日任務' && !isTab(el));
+        for (const el of cardTitles) {{
+            let c = el;
+            for (let i = 0; i < 8; i++) {{
+                if (!c.parentElement) break;
+                c = c.parentElement;
+                if (crossesCardBoundary(c)) break;  // gone too far, stop
+                const btn = Array.from(c.querySelectorAll('button')).find(b => b.textContent.trim() === '領取');
+                if (btn) {{ {check_or_click} }}
+            }}
+        }}
+        return {no_result};
+    """
+
+
 async def _claim_daily(tab, username: str, logger) -> tuple[bool, bool, Optional[int], Optional[int]]:
     safe = username
     profile_url = f"{BASE_URL}/@{username}/artworks"
 
     logger.info(f"[{safe}] Navigating to profile page...")
     await tab.go_to(profile_url)
-    await asyncio.sleep(6)
+    await asyncio.sleep(5)
     await _screenshot(tab, f"{safe}_5_profile")
 
-    check = await _js(tab, """
+    # Click the "每日任務" tab (new UI: tab-based navigation)
+    await _js(tab, """
         const allEls = Array.from(document.querySelectorAll('*'));
-        const dailyEl = allEls.find(el =>
-            (el.childNodes.length > 0 &&
-            Array.from(el.childNodes).some(n => n.textContent && n.textContent.trim() === '每日任務')) ||
-            el.textContent.trim() === '每日任務'
-        );
-        if (!dailyEl) return 'no_row';
-        let container = dailyEl;
-        for (let i = 0; i < 6; i++) {
-            if (!container.parentElement) break;
-            container = container.parentElement;
-            const btns = Array.from(container.querySelectorAll('button'));
-            const claimBtn = btns.find(b => b.textContent.trim() === '領取');
-            if (claimBtn) return claimBtn.disabled ? 'disabled' : 'ready';
-        }
-        return 'no_button';
+        const tabEl = allEls.find(el => {
+            if (el.textContent.trim() !== '每日任務') return false;
+            const p = el.parentElement;
+            return p && Array.from(p.children).some(
+                s => s !== el && (s.textContent.trim() === '精選活動' || s.textContent.trim() === '社群任務')
+            );
+        });
+        if (tabEl) tabEl.click();
     """)
+    await asyncio.sleep(3)
+    await _screenshot(tab, f"{safe}_6_daily_tab")
 
-    if check == "no_row":
-        logger.warning(f"[{safe}] Daily task row not found")
-        return False, False, None, None
+    # Check 領取 button state in the 每日任務 card
+    check = await _js(tab, _daily_card_btn_js("check"))
+
     if check in ("disabled", "no_button"):
         balance = await _get_balance(tab)
         logger.info(f"[{safe}] Already claimed today")
         return False, True, None, balance
 
+    # Click "領取" in the card — this opens the claim modal
     logger.info(f"[{safe}] Opening daily claim modal...")
-    await _js(tab, """
-        const allEls = Array.from(document.querySelectorAll('*'));
-        const dailyEl = allEls.find(el =>
-            (el.childNodes.length > 0 &&
-            Array.from(el.childNodes).some(n => n.textContent && n.textContent.trim() === '每日任務')) ||
-            el.textContent.trim() === '每日任務'
-        );
-        if (!dailyEl) return false;
-        let container = dailyEl;
-        for (let i = 0; i < 6; i++) {
-            if (!container.parentElement) break;
-            container = container.parentElement;
-            const btns = Array.from(container.querySelectorAll('button'));
-            const claimBtn = btns.find(b => b.textContent.trim() === '領取');
-            if (claimBtn) { claimBtn.click(); return true; }
-        }
-        return false;
-    """)
-
+    await _js(tab, _daily_card_btn_js("click"))
     await asyncio.sleep(3)
     await _screenshot(tab, f"{safe}_6_modal_opened")
 
+    # Wait for Turnstile inside the modal
     logger.info(f"[{safe}] Waiting for Cloudflare Turnstile...")
     for i in range(40):
         await asyncio.sleep(1)
@@ -265,6 +289,7 @@ async def _claim_daily(tab, username: str, logger) -> tuple[bool, bool, Optional
     await asyncio.sleep(1)
     await _screenshot(tab, f"{safe}_8_before_final_click")
 
+    # Click "領取每日 10,000 點數" inside the modal
     await _js(tab, """
         const b = Array.from(document.querySelectorAll('button'))
             .find(b => b.textContent.includes('領取每日'));
@@ -275,16 +300,24 @@ async def _claim_daily(tab, username: str, logger) -> tuple[bool, bool, Optional
     await asyncio.sleep(5)
     await _screenshot(tab, f"{safe}_9_after_claim")
 
-    # Read balance now while modal is still showing the success state
-    # ("可用點數 🟡 X,XXX" is visible in the modal header)
+    # Check for email verification requirement overlay
+    email_verify_required = await _js(tab, """
+        const text = document.body.innerText;
+        return text.includes('需要進行電子郵件驗證') || text.includes('email verification');
+    """)
+    if email_verify_required:
+        await _screenshot(tab, f"{safe}_9b_modal_still_open")
+        logger.warning(f"[{safe}] Email verification required — go to PixAI Settings → Account to verify")
+        return False, False, None, None
+
     balance = await _get_balance(tab)
 
+    # Modal success check: "領取每日" button should be gone
     modal_closed = await _js(tab, """
         const b = Array.from(document.querySelectorAll('button'))
             .find(b => b.textContent.includes('領取每日'));
         return !b;
     """)
-
     if not modal_closed:
         await _screenshot(tab, f"{safe}_9b_modal_still_open")
         logger.warning(f"[{safe}] Modal not closed, claim may have failed")
